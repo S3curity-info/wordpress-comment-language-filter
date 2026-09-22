@@ -1,0 +1,19 @@
+# Configuration privée
+config.json
+config.json.*
+.env
+.env.*
+
+# Environnement Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Journaux et verrou
+*.log
+*.log.*
+*.lock
+
+# Fichiers temporaires
+*.tmp
