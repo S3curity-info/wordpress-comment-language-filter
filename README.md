@@ -9,22 +9,22 @@ Aucun plugin WordPress supplémentaire n’est nécessaire.
 
 ## Fonctionnement
 
-- Analyse uniquement les commentaires en attente.
-- Conserve les commentaires français, trop courts ou incertains.
-- Fonctionne en simulation par défaut.
-- Applique le classement uniquement avec `--apply`.
-- Relit chaque commentaire sélectionné avant de le modifier.
-- Ne supprime définitivement aucun commentaire.
-- Enregistre les actions dans `tri.log`, avec rotation des journaux.
-- Empêche deux exécutions simultanées utilisant le même dossier.
+- Analyse uniquement les commentaires en attente
+- Conserve les commentaires français, trop courts ou incertains
+- Fonctionne en simulation par défaut
+- Applique le classement uniquement avec `--apply`
+- Relit chaque commentaire sélectionné avant de le modifier
+- Ne supprime définitivement aucun commentaire
+- Enregistre les actions dans `tri.log`, avec rotation des journaux
+- Empêche deux exécutions simultanées utilisant le même dossier
 
 ## Prérequis
 
-- Linux ou un conteneur Linux : le script utilise `fcntl`.
-- Python 3.11, version utilisée pour cette installation.
-- Un site WordPress accessible en HTTPS.
-- Un compte WordPress autorisé à modérer les commentaires.
-- Un mot de passe d’application associé à ce compte.
+- Linux ou un conteneur Linux : le script utilise `fcntl`
+- Python 3.11, version utilisée pour cette installation
+- Un site WordPress accessible en HTTPS
+- Un compte WordPress autorisé à modérer les commentaires
+- Un mot de passe d’application associé à ce compte
 
 Le rôle standard Éditeur convient, mais donne également des droits
 sur les articles et les pages. Utiliser un compte dédié.
@@ -51,9 +51,9 @@ chmod 600 config.json
 
 Modifier `config.json` pour renseigner :
 
-- `api_url` : URL complète de l’API des commentaires ;
-- `username` : identifiant du compte WordPress dédié ;
-- `application_password` : mot de passe d’application WordPress.
+- `api_url` : URL complète de l’API des commentaires
+- `username` : identifiant du compte WordPress dédié
+- `application_password` : mot de passe d’application WordPress
 
 Ne jamais publier `config.json`.
 
@@ -111,6 +111,27 @@ conteneur existant avec `docker exec`.
 - La relecture avant modification réduit les conflits avec une
   modération manuelle, sans garantir une opération atomique.
 - Une erreur peut interrompre un traitement après plusieurs
-  classements déjà effectués : consulter le journal avant de relancer.
+  classements déjà effectués : consulter le journal avant de relancer
 
 Commencer par une simulation et vérifier régulièrement les indésirables.
+
+## Dépannage : aucun commentaire récupéré
+
+Si le script affiche `Commentaires récupérés : 0` alors que
+WordPress contient des commentaires en attente, une réponse
+ancienne de l’API REST peut être servie par un cache.
+
+Avec LiteSpeed Cache :
+
+1. Ouvrir **LiteSpeed Cache → Cache**.
+2. Désactiver **Mettre en cache l’API REST**.
+3. Enregistrer les modifications.
+4. Ouvrir **LiteSpeed Cache → Boîte à outils → Purger**,
+   puis cliquer sur **Tout purger**.
+5. Relancer le script et vérifier le nombre de commentaires récupérés.
+
+Pour un autre système de cache ou CDN, vérifier que les requêtes
+authentifiées de modération ne sont pas mises en cache.
+
+Ce problème relève de la configuration du site, pas des seuils
+de détection de langue.
