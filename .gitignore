@@ -15,5 +15,11 @@ __pycache__/
 *.log.*
 *.lock
 
+# Sauvegardes locales
+*.bak
+*.bak-*
+*.backup
+*~
+
 # Fichiers temporaires
 *.tmp
