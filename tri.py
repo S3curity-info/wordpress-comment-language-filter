@@ -58,8 +58,11 @@ def clean_text(content):
     parser = TextExtractor()
     parser.feed(content)
     text = " ".join(parser.parts)
+    # Retirer les balises BBCode avant les URL :
+    # [url=https://example.com]texte[/url] devient texte.
+    text = re.sub(r"\[url=[^\]]*\]", " ", text, flags=re.I)
+    text = re.sub(r"\[/?url\]", " ", text, flags=re.I)
     text = re.sub(r"https?://\S+|www\.\S+", " ", text)
-    text = re.sub(r"\[/?url[^\]]*\]", " ", text, flags=re.I)
     return " ".join(text.split())
 
 
@@ -172,13 +175,41 @@ def main():
 
             best = scores[0]
             gap = best.value - scores[1].value
-            candidate = (
+            french_score = next(
+                (item.value for item in scores
+                 if item.language == Language.FRENCH),
+                0.0,
+            )
+
+            standard_candidate = (
                 best.language != Language.FRENCH
                 and best.value >= minimum_score
                 and gap >= minimum_gap
             )
 
+            english_candidate = (
+                best.language == Language.ENGLISH
+                and best.value >= 0.55
+                and gap >= 0.30
+                and french_score <= 0.01
+            )
+
+            candidate = standard_candidate or english_candidate
+
             if not candidate:
+                alternatives = ", ".join(
+                    f"{item.language.name}={item.value:.3f}"
+                    for item in scores[:3]
+                )
+                french_score = next(
+                    (item.value for item in scores
+                     if item.language == Language.FRENCH),
+                    0.0,
+                )
+                logger.info(
+                    "#%s | diagnostic : %s | français=%.3f | écart=%.3f",
+                    comment_id, alternatives, french_score, gap,
+                )
                 logger.info(
                     "#%s | conservé | langue=%s | score=%.3f",
                     comment_id, best.language.name, best.value,
