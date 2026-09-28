@@ -4,5 +4,8 @@
   "application_password": "REMPLACER_PAR_UN_MOT_DE_PASSE_APPLICATION",
   "minimum_score": 0.90,
   "minimum_gap": 0.20,
-  "minimum_letters": 40
+  "minimum_letters": 40,
+  "blocked_texts": [
+    "METRYTRH405186MARTHHDF"
+  ]
 }

@@ -66,12 +66,107 @@ def clean_text(content):
     return " ".join(text.split())
 
 
+LINK_RE = re.compile(
+    r"(?i)\b(?:https?://|www\.)[^\s<>\[\]\"']+"
+)
+TRIM_CHARS = " \t\r\n.,;:!?()[]{}<>\"'«»“”‘’—–-_*/\\|"
+
+
+class LinkAwareExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.link_depth = 0
+        self.link_count = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "a":
+            return
+
+        href = ""
+        for name, value in attrs:
+            if name.lower() == "href" and value:
+                href = value.strip()
+                break
+
+        if href.lower().startswith(("http://", "https://", "www.")):
+            self.link_count += 1
+            self.link_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self.link_depth > 0:
+            self.link_depth -= 1
+
+    def handle_data(self, data):
+        if self.link_depth == 0:
+            self.parts.append(data)
+
+    def outside_text(self):
+        return " ".join(self.parts)
+
+
+def normalize_for_match(text):
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def remove_bbcode_links(content):
+    count = 0
+
+    def replace(match):
+        nonlocal count
+        target = match.group(1) or ""
+        label = match.group(2) or ""
+        if (
+            target.lower().startswith(("http://", "https://", "www."))
+            or LINK_RE.search(label)
+        ):
+            count += 1
+            return " "
+        return label
+
+    cleaned = re.sub(
+        r"\[url(?:=([^\]]+))?\](.*?)\[/url\]",
+        replace,
+        content,
+        flags=re.I | re.S,
+    )
+    return cleaned, count
+
+
+def link_profile(content):
+    without_bbcode_links, link_count = remove_bbcode_links(content)
+
+    parser = LinkAwareExtractor()
+    parser.feed(without_bbcode_links)
+
+    outside = parser.outside_text()
+    link_count += parser.link_count
+
+    bare_links = LINK_RE.findall(outside)
+    link_count += len(bare_links)
+
+    residue = LINK_RE.sub(" ", outside)
+    residue = re.sub(r"\[/?(?:url|img|b|i|strong|em)[^\]]*\]", " ", residue, flags=re.I)
+    residue = re.sub(r"\s+", " ", residue).strip(TRIM_CHARS)
+
+    has_link = link_count > 0
+    only_links = has_link and not residue
+
+    return has_link, only_links
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--apply",
         action="store_true",
         help="Appliquer réellement le classement en indésirable",
+    )
+    parser.add_argument(
+        "--only-ids",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Limiter le traitement à certains identifiants de commentaires",
     )
     args = parser.parse_args()
 
@@ -98,6 +193,12 @@ def main():
             and minimum_letters >= 1
         ):
             raise ValueError("Seuils de configuration invalides.")
+
+        blocked_texts = {
+            normalize_for_match(item)
+            for item in config.get("blocked_texts", [])
+            if item.strip()
+        }
 
         token = base64.b64encode(
             (
@@ -156,6 +257,14 @@ def main():
                 break
             page += 1
 
+        if args.only_ids:
+            wanted_ids = set(args.only_ids)
+            comments = {
+                comment_id: comment
+                for comment_id, comment in comments.items()
+                if comment_id in wanted_ids
+            }
+
         logger.info("Commentaires récupérés : %s", len(comments))
         detector = LanguageDetectorBuilder.from_all_languages().build()
         selected = 0
@@ -163,96 +272,128 @@ def main():
         skipped = 0
 
         for comment_id, comment in comments.items():
-            text = clean_text(raw_content(comment))
-            if sum(char.isalpha() for char in text) < minimum_letters:
-                logger.info("#%s | conservé | texte court", comment_id)
-                continue
+            original_content = raw_content(comment)
+            text = clean_text(original_content)
+            normalized_text = normalize_for_match(text)
 
-            scores = detector.compute_language_confidence_values(text)
-            if len(scores) < 2:
-                logger.info("#%s | conservé | langue incertaine", comment_id)
-                continue
+            has_link, only_links = link_profile(original_content)
 
-            best = scores[0]
-            gap = best.value - scores[1].value
-            french_score = next(
-                (item.value for item in scores
-                 if item.language == Language.FRENCH),
-                0.0,
-            )
+            forced_reason = None
+            if normalized_text in blocked_texts:
+                forced_reason = "texte bloqué"
+            elif only_links:
+                forced_reason = "commentaire composé uniquement de liens"
 
-            standard_candidate = (
-                best.language != Language.FRENCH
-                and best.value >= minimum_score
-                and gap >= minimum_gap
-            )
+            if forced_reason:
+                candidate = True
+                best_language_name = "REGLE"
+                best_score = 1.0
+            else:
+                if sum(char.isalpha() for char in text) < minimum_letters:
+                    logger.info("#%s | conservé | texte court", comment_id)
+                    continue
 
-            english_candidate = (
-                best.language == Language.ENGLISH
-                and best.value >= 0.55
-                and gap >= 0.30
-                and french_score <= 0.01
-            )
+                scores = detector.compute_language_confidence_values(text)
+                if len(scores) < 2:
+                    logger.info("#%s | conservé | langue incertaine", comment_id)
+                    continue
 
-            candidate = standard_candidate or english_candidate
+                best = scores[0]
+                gap = best.value - scores[1].value
 
-            if not candidate:
-                alternatives = ", ".join(
-                    f"{item.language.name}={item.value:.3f}"
-                    for item in scores[:3]
-                )
                 french_score = next(
                     (item.value for item in scores
                      if item.language == Language.FRENCH),
                     0.0,
                 )
-                logger.info(
-                    "#%s | diagnostic : %s | français=%.3f | écart=%.3f",
-                    comment_id, alternatives, french_score, gap,
-                )
-                logger.info(
-                    "#%s | conservé | langue=%s | score=%.3f",
-                    comment_id, best.language.name, best.value,
-                )
-                continue
 
-            selected += 1
+                standard_candidate = (
+                    best.language != Language.FRENCH
+                    and best.value >= minimum_score
+                    and gap >= minimum_gap
+                )
+
+                english_candidate = (
+                    best.language == Language.ENGLISH
+                    and best.value >= 0.55
+                    and gap >= 0.30
+                    and french_score <= 0.01
+                )
+
+                english_with_link_candidate = (
+                    best.language == Language.ENGLISH
+                    and has_link
+                    and best.value >= 0.75
+                    and gap >= 0.50
+                    and french_score <= 0.05
+                )
+
+                candidate = (
+                    standard_candidate
+                    or english_candidate
+                    or english_with_link_candidate
+                )
+
+                best_language_name = best.language.name
+                best_score = best.value
+
+                if not candidate:
+                    alternatives = ", ".join(
+                        f"{item.language.name}={item.value:.3f}"
+                        for item in scores[:3]
+                    )
+                    logger.info(
+                        "#%s | diagnostic : %s | français=%.3f | écart=%.3f",
+                        comment_id, alternatives, french_score, gap,
+                    )
+                    logger.info(
+                        "#%s | conservé | langue=%s | score=%.3f",
+                        comment_id,best.language.name,best.value,
+                    )
+                    continue
+
+            selected +=1
             if not args.apply:
-                logger.info(
-                    "#%s | serait indésirable | langue=%s | score=%.3f",
-                    comment_id, best.language.name, best.value,
-                )
+                if forced_reason:
+                    logger.info(
+                        "#%s | serait indésirable | règle=%s",
+                        comment_id, forced_reason,
+                    )
+                else:
+                    logger.info(
+                        "#%s | serait indésirable | langue=%s | score=%.3f",
+                        comment_id,best_language_name,best_score,
+                    )
                 continue
 
-            # Relire le commentaire juste avant de le modifier.
-            current, _ = request(
-                f"/{comment_id}", params={"context": "edit"}
-            )
+            current,_=request(f"/{comment_id}",params={"context":"edit"})
             if (
                 current.get("status") != "hold"
                 or raw_content(current) != raw_content(comment)
             ):
-                skipped += 1
+                skipped+=1
                 logger.info(
                     "#%s | ignoré : statut ou texte modifié entre-temps",
                     comment_id,
                 )
                 continue
-
             logger.info("#%s | demande de classement", comment_id)
-            updated, _ = request(
-                f"/{comment_id}", payload={"status": "spam"}
-            )
+            updated,_=request(f"/{comment_id}",payload={"status":"spam"})
             if updated.get("status") != "spam":
                 raise ValueError(
                     f"Classement non confirmé pour #{comment_id}"
                 )
-
-            changed += 1
-            logger.info(
-                "#%s | CLASSE INDESIRABLE | langue=%s | score=%.3f",
-                comment_id, best.language.name, best.value,
-            )
+            changed+=1
+            if forced_reason:
+                logger.info(
+                    "#%s | CLASSE INDESIRABLE | règle=%s",
+                    comment_id, forced_reason,
+                )
+            else:
+                logger.info(
+                    "#%s | CLASSE INDESIRABLE | langue=%s | score=%.3f",
+                    comment_id,best_language_name,best_score,
+                )
 
         logger.info(
             "BILAN | mode=%s | analysés=%s | sélectionnés=%s"
