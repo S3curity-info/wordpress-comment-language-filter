@@ -139,7 +139,7 @@ Cette option est pratique pour corriger quelques commentaires restés en attente
 
 Après nettoyage, le commentaire doit contenir au moins `minimum_letters` lettres pour être analysé par le détecteur de langue.
 
-Sinon, il reste en attente, sauf s’il correspond à une règle prioritaire comme un commentaire composé uniquement de liens ou un texte présent dans `blocked_texts`.
+Sinon, il reste en attente, sauf s’il correspond à une règle prioritaire comme un commentaire contenant un lien ou un texte présent dans `blocked_texts`.
 
 ### Règle générale
 
@@ -174,7 +174,7 @@ Exemple :
 [url=https://example.com]boursobank parrainage[/url]
 ```
 
-Ce commentaire sera considéré comme un commentaire composé uniquement de liens et sera classé en indésirable.
+Ce commentaire sera considéré comme un commentaire contenant un lien et sera classé en indésirable.
 
 ### Règle complémentaire pour l’anglais
 
@@ -344,7 +344,7 @@ Interpréter le résultat :
 - `texte court` : longueur inférieure à `minimum_letters` après nettoyage.
 - `conservé` avec des scores : les règles de classement ne sont pas remplies.
 - `serait indésirable` : le commentaire est sélectionné, mais la simulation ne modifie rien.
-- `règle=commentaire composé uniquement de liens` : le commentaire sera classé car il ne contient que des liens.
+- `règle=commentaire contenant un lien` : le commentaire sera classé car il ne contient que des liens.
 - `règle=texte bloqué` : le commentaire correspond à un texte présent dans `blocked_texts`.
 
 Pour appliquer réellement le classement :

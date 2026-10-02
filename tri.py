@@ -281,8 +281,8 @@ def main():
             forced_reason = None
             if normalized_text in blocked_texts:
                 forced_reason = "texte bloqué"
-            elif only_links:
-                forced_reason = "commentaire composé uniquement de liens"
+            elif has_link:
+                forced_reason = "commentaire contenant un lien"
 
             if forced_reason:
                 candidate = True
